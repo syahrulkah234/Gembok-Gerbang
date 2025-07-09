@@ -1,0 +1,256 @@
+<script type="text/javascript">
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function filledCell(cell) {
+          return cell !== '' && cell != null;
+        }
+        function loadFileData(filename) {
+        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+            try {
+                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                var firstSheetName = workbook.SheetNames[0];
+                var worksheet = workbook.Sheets[firstSheetName];
+
+                // Convert sheet to JSON to filter blank rows
+                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                // Filter out blank rows (rows where all cells are empty, null, or undefined)
+                var filteredData = jsonData.filter(row => row.some(filledCell));
+
+                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
+                var headerRowIndex = filteredData.findIndex((row, index) =>
+                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+                );
+                // Fallback
+                if (headerRowIndex === -1 || headerRowIndex > 25) {
+                  headerRowIndex = 0;
+                }
+
+                // Convert filtered JSON back to CSV
+                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
+                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                return csv;
+            } catch (e) {
+                console.error(e);
+                return "";
+            }
+        }
+        return gk_fileData[filename] || "";
+        }
+        </script><!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Jadwal Ngunci Gerbang</title>
+  <link rel="icon" type="image/png" href="https://cdn-icons-png.flaticon.com/32/3779/3779237.png">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
+  <style>
+    body {
+      background: linear-gradient(to bottom, #60a5fa, #1e40af);
+      color: #1f2937;
+      font-family: 'Inter', sans-serif;
+      margin: 0;
+      padding: 0;
+    }
+    .container {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      padding: 1rem;
+    }
+    .card {
+      background: white;
+      border-radius: 1.5rem;
+      box-shadow: 0 6px 12px rgba(0, 0, 0, 0.15);
+      padding: 2rem;
+      width: 100%;
+      max-width: 22rem;
+      text-align: center;
+      animation: fadeIn 1s ease-in-out;
+    }
+    @keyframes fadeIn {
+      0% { opacity: 0; transform: translateY(20px); }
+      100% { opacity: 1; transform: translateY(0); }
+    }
+    .title {
+      font-size: 1.75rem;
+      font-weight: 700;
+      color: #1e40af;
+      margin-bottom: 0.5rem;
+    }
+    .time {
+      font-size: 1.1rem;
+      font-weight: 400;
+      color: #4b5563;
+      margin-bottom: 0.75rem;
+    }
+    .schedule {
+      font-size: 1.4rem;
+      font-weight: 500;
+      color: #1f2937;
+      margin-bottom: 1rem;
+    }
+    .icon {
+      width: 3rem;
+      height: 3rem;
+      margin-bottom: 1rem;
+    }
+    .weekly-schedule {
+      font-size: 0.9rem;
+      font-weight: 400;
+      color: #1f2937;
+      margin-top: 1rem;
+      padding: 0.5rem;
+      border-top: 1px solid #e5e7eb;
+    }
+    .weekly-schedule table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    .weekly-schedule th, .weekly-schedule td {
+      border: 1px solid #e5e7eb;
+      padding: 0.5rem;
+      text-align: left;
+    }
+    .weekly-schedule th {
+      background-color: #f3f4f6;
+      font-weight: 600;
+    }
+    .weekly-button {
+      transition: transform 0.2s ease-in-out;
+    }
+    .weekly-button:hover {
+      transform: scale(1.05);
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="card">
+      <img src="https://cdn-icons-png.flaticon.com/128/3779/3779237.png" alt="Ikon Kunci" class="icon mx-auto">
+      <h1 class="title">Jadwal Ngunci Gerbang</h1>
+      <div id="currentTime" class="time"></div>
+      <div id="schedule" class="schedule"></div>
+      <div class="flex justify-center mt-2">
+        <button id="weeklyButton" class="weekly-button bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700">Lihat Jadwal 14 Hari</button>
+      </div>
+      <div id="weeklySchedule" class="weekly-schedule hidden">
+        <table>
+          <thead>
+            <tr>
+              <th>Tanggal</th>
+              <th>Juru Kunci</th>
+            </tr>
+          </thead>
+          <tbody id="weeklyTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Konfigurasi juru kunci (13 juru kunci)
+    const juruKunci = ['A1', 'A2', 'A4', 'A5', 'A6', 'B9', 'B8', 'B7', 'B6', 'B5', 'B3', 'B2', 'B1'];
+    const days = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+    const periodLength = 14; // Periode 14 hari
+
+    // Fungsi utilitas untuk format tanggal (DD/MM/YY)
+    function formatDate(date) {
+      const day = String(date.getDate()).padStart(2, '0');
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const year = String(date.getFullYear()).slice(-2);
+      return `${day}/${month}/${year}`;
+    }
+
+    // Fungsi untuk menentukan juru kunci berdasarkan tanggal
+    function getJuruKunciForDay(date) {
+      const today = days[date.getDay()];
+      const startDate = new Date('2025-01-05'); // Minggu pertama A1
+      const diffTime = Math.abs(date - startDate);
+      const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+      const periodDay = diffDays % periodLength; // Hari dalam periode (0-13)
+
+      // Sabtu pertama dalam periode (hari ke-6, karena Minggu=0, Sabtu=6)
+      if (today === 'Sabtu' && periodDay === 6) {
+        return { day: today, person: 'Monggo ingkang longgar ngunci gerbang!' };
+      }
+
+      // Hitung indeks juru kunci
+      // Total hari kerja hingga periode ini
+      const totalPeriods = Math.floor(diffDays / periodLength);
+      const totalWorkDays = totalPeriods * 13 + (periodDay < 6 ? periodDay : periodDay - 1); // Kurangi 1 untuk Sabtu pertama
+      const juruIndex = totalWorkDays % juruKunci.length;
+      return { day: today, person: juruKunci[juruIndex] };
+    }
+
+    // Fungsi untuk menampilkan waktu saat ini
+    function updateCurrentTime() {
+      const timeDiv = document.getElementById('currentTime');
+      const now = new Date();
+      const hours = String(now.getHours()).padStart(2, '0');
+      const minutes = String(now.getMinutes()).padStart(2, '0');
+      timeDiv.textContent = `Sekarang Jam ${hours}:${minutes}`;
+    }
+
+    // Fungsi untuk menampilkan jadwal harian
+    function updateSchedule() {
+      const scheduleDiv = document.getElementById('schedule');
+      const now = new Date();
+      const { day, person } = getJuruKunciForDay(now);
+      scheduleDiv.textContent = `${day}, juru kunci: ${person}`;
+    }
+
+    // Fungsi untuk menampilkan jadwal 14 hari
+    function toggleWeeklySchedule() {
+      const weeklyTableBody = document.getElementById('weeklyTableBody');
+      const button = document.getElementById('weeklyButton');
+      const weeklyDiv = document.getElementById('weeklySchedule');
+      const now = new Date();
+      const startDate = new Date(now);
+
+      let tableHtml = '';
+      for (let i = 0; i < 14; i++) {
+        const date = new Date(startDate);
+        date.setDate(startDate.getDate() + i);
+        const { day, person } = getJuruKunciForDay(date);
+        const formattedDate = formatDate(date);
+        const displayPerson = day === 'Sabtu' && person.includes('Monggo') ? 'Bebas' : person;
+        tableHtml += `
+          <tr>
+            <td>${day}, ${formattedDate}</td>
+            <td>${displayPerson}</td>
+          </tr>
+        `;
+      }
+      weeklyTableBody.innerHTML = tableHtml;
+
+      if (weeklyDiv.classList.contains('hidden')) {
+        weeklyDiv.classList.remove('hidden');
+        button.textContent = 'Tutup';
+        button.classList.remove('bg-blue-600', 'hover:bg-blue-700');
+        button.classList.add('bg-gray-500', 'hover:bg-gray-600');
+      } else {
+        weeklyDiv.classList.add('hidden');
+        button.textContent = 'Lihat Jadwal 14 Hari';
+        button.classList.remove('bg-gray-500', 'hover:bg-gray-600');
+        button.classList.add('bg-blue-600', 'hover:bg-blue-700');
+      }
+    }
+
+    // Fungsi untuk inisialisasi aplikasi
+    function initApp() {
+      updateSchedule();
+      updateCurrentTime();
+      setInterval(updateCurrentTime, 60000); // Perbarui waktu setiap menit
+      document.getElementById('weeklyButton').addEventListener('click', toggleWeeklySchedule);
+    }
+
+    // Jalankan inisialisasi saat DOM siap
+    document.addEventListener('DOMContentLoaded', initApp);
+  </script>
+</body>
+</html>
